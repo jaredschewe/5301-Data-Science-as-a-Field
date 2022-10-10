@@ -1,0 +1,198 @@
+---
+title: "NYPD Shooting Analysis"
+author: "JS"
+date: "2022-10-07"
+output: pdf_document
+---
+
+## NYPD Shooting Analysis
+
+I have decided to focus on analyzing trends involving shooting age of victims and if it is impacted by the borough the victim is in. I'm interested in looking at where shootings are most likely to occur and who they are most likely to occur based on those factors.
+
+Please see below steps taken to upload, clean and analyze data for the week 3 assignment on data regarding shootings in New York City.
+
+```{r setup, include=TRUE, warning=FALSE, message=FALSE}
+
+## include libraries required and setup knit
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+Initially we will import the data set. This is obtained from the NYPD via Data.gov and covers the years from 2006 to present. A link to the data page is available at:
+
+<https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic>
+
+```{r import}
+
+## import data from source
+
+url1 <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+shootdata <- read_csv(url1)
+
+```
+
+Inspect summary of data for future cleaning and observe column titles/types.
+
+```{r summary, echo=TRUE}
+
+## display summary of imported data
+
+summary(shootdata)
+
+str(shootdata)
+
+```
+
+After looking through the available data we will be able to remove all columns except for VIC_AGE_GROUP, BORO, and OCCUR_DATE as well as alter OCCUR_DATE to the date format. Additionally convert data as required.
+
+```{r convertdate}
+# select only columns required
+# filter out unknown age groups
+
+
+cleanShootData <- shootdata %>%
+    select(c(BORO, VIC_AGE_GROUP, OCCUR_DATE)) %>%
+    mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>%
+    mutate(BORO = factor(BORO)) %>%
+    mutate(VIC_AGE_GROUP = factor(VIC_AGE_GROUP))
+    
+cleanShootData <- cleanShootData %>%
+    select(c(BORO, VIC_AGE_GROUP, OCCUR_DATE))
+
+summary(cleanShootData)
+    
+```
+
+Noticing a group of unknown ages in the data, I decide the correct course of action would be to drop them from the analysis as they total only roughly one fifth of one percent of the data points. Following such will do one final summary check of the data.
+
+```{r remove unknown}
+#filter out unknown age groups
+
+cleanShootData <- cleanShootData %>%
+    filter(VIC_AGE_GROUP!='UNKNOWN')
+    
+cleanShootData <- cleanShootData %>%
+    select(c(BORO, VIC_AGE_GROUP, OCCUR_DATE))
+
+summary(cleanShootData)
+
+```
+
+The initial visualization to undertake will simply be a tracking of shootings by year in New York. 
+
+We can see clearly that while shootings were generally trending downwards, they spiked sharply around 2020. 
+
+```{r graphbyyear}
+VIZ_DATA <- cleanShootData
+
+VIZ_DATA <- VIZ_DATA %>%
+    mutate((OCCUR_DATE = year(OCCUR_DATE))) %>%
+    group_by(OCCUR_DATE) %>%
+    count(name = "SHOOTINGS")
+
+GRAPH_SHOOTING <- VIZ_DATA %>%
+    ggplot(aes(x = OCCUR_DATE, y = SHOOTINGS))+geom_line (color = "blue")
+
+GRAPH_SHOOTING
+```
+
+
+The next visual analysis to undertake will simply be tracking shootings victims by age group. As we see below, young adults (18-44) are far more likely to be the victim of a shooting  than other age groups. We must be cautious to draw conclusions though as this does not account for factors such as population. If there are 10x as many of an age bracket, it would be reasonable to assume 10x as many shootings would be plausible. 
+
+```{r}
+# this is super lazy and should pull the numbers, no copy paste
+
+AGE_FRAME <- data.frame((AgeGroup=c("<18", "18-24", "25-44", "45-64", "65+")),
+      Count = c(2681, 9604, 11386, 1698, 167))
+
+AGE_BAR <- ggplot(data=AGE_FRAME, aes(x=AgeGroup, y=Count)) + 
+        geom_bar(stat="identity")
+
+AGE_BAR
+```
+
+
+Taking that data, I'd like to find out if murders by age move in step together, so will plot out murders by age group per year. 
+
+It certainly appears that the amount of victims shot by age generally move in step with each other, indicating a larger outside factor than age as a cause. It should be noted that this could be misleading as it does not account for population of the age groups.  
+
+
+```{r plotbyborough}
+SHOT_BY_TIME <- cleanShootData
+
+SHOT_BY_TIME <- SHOT_BY_TIME %>%
+    mutate(OCCUR_DATE = year(OCCUR_DATE)) %>%
+    count(OCCUR_DATE,VIC_AGE_GROUP) %>%
+    ggplot(mapping = aes(x = OCCUR_DATE, y=n, color = VIC_AGE_GROUP)) + geom_line()
+
+SHOT_BY_TIME
+```
+
+Next we will look at shooting by borough. As with the shootings by age, we can see that certain boroughs such as Brooklyn or Bronx account for a far greater percentage of the shootings as opposed Staten Island or Queens. We must again acknowledge though this could be misleading as it does not account for population of the boroughs. 
+
+
+```{r barplot borough}
+
+BORO_FRAME <- data.frame((Borough = c("BRONX", "BROOKLYN", "MANHATTAN", "QUEENS", "STATEN ISLAND")),
+      Count = c(7385, 10339, 3260, 3817, 735))
+
+BORO_BAR <- ggplot(data=BORO_FRAME, aes(x=Borough, y=Count)) + 
+        geom_bar(stat="identity")
+
+BORO_BAR
+
+```
+
+Lastly we'll look at borough shootings by year to see if there is a visual relationship. As we can see, it certainly appears to be that way for most, though Staten Island does not neccessarily move in step.
+
+
+```{r visualbyborough}
+SHOT_BY_BORO <- cleanShootData
+
+SHOT_BY_BORO <- SHOT_BY_BORO %>%
+    mutate(OCCUR_DATE = year(OCCUR_DATE)) %>%
+    count(OCCUR_DATE,BORO) %>%
+    ggplot(mapping = aes(x = OCCUR_DATE, y=n, color = BORO)) + geom_line()
+
+SHOT_BY_BORO
+
+
+```
+Lastly we'll look to model if there is a relationship between shootings in Brooklyn and shootings in Queens and if they could be a predictive factor. 
+
+It certainly appears that a relationship is likely judging by an adjust R-squared value of approximately 0.72, however this is far too basic of an overview to draw any conclusions. 
+
+```{r modeltime}
+SHOT_BY_BROOK <- cleanShootData %>%
+   
+mutate(OCCUR_DATE = year(OCCUR_DATE)) %>%
+   filter(BORO == "BROOKLYN") %>%
+  group_by(OCCUR_DATE) %>%
+  tally 
+
+
+SHOT_BY_QUEENS <- cleanShootData %>%
+   
+mutate(OCCUR_DATE = year(OCCUR_DATE)) %>%
+  filter(BORO == "QUEENS") %>%
+  group_by(OCCUR_DATE) %>%
+  tally
+  
+
+  plot(SHOT_BY_QUEENS$n, SHOT_BY_BROOK$n)
+
+mod1 <- lm(SHOT_BY_QUEENS$n ~ SHOT_BY_BROOK$n)
+
+
+summary(mod1)
+
+```
+
+
+# Bias
+
+A large concern for bias is that I selected what and how I would analyze the data after already inspecting it. Additionally data is not controlled for any factors such as population, a rate analysis would probably be more beneficial in painting an accurate picture. Lastly, a common bias that will occur is the tendency for us in the earlier stages of learning to select methods that we are more comfortable with instead of what may be the best analytic techniques. This can lead to weak observations and conclusions. 
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

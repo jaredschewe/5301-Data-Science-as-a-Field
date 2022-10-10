@@ -1,0 +1,206 @@
+---
+title: "John Hopkins Covid"
+author: "JS"
+date: "2022-10-08"
+output: pdf_document
+---
+## John Hopkins Covid Data Analyis
+
+Early on when looking at COVID data I knew I wanted to explore the three prairie provinces in Canada - Alberta, Saskatchewan and Manitoba - to see which produced the best results in cases and deaths. I spent the pandemic era in between those 3 areas and the general populations attitude towards lock downs and anecdotally views on restrictions were keenly different in all three. Alberta - very anti restrictions, Saskatchewan a mix, Manitoba very pro restrictions.
+
+Initially we will load the libraries and setup knit
+
+```{r setup, include=TRUE, warning=FALSE, message=FALSE}
+
+# include libraries required and setup knit
+
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+Next we will import the data set. Since I am only going to be using data from the three provinces I will only be including global cases and deaths. Additionally will need province population data for future use and will import that now as well from STAT Canada. A link to the data sources are available at:
+
+<https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data/csse_covid_19_time_series>
+
+<https://www150.statcan.gc.ca/t1/tbl1/en/cv!recreate.action?pid=1710000501&selectedNodeIds=1D8,1D9,1D10,3D1&checkedLevels=1D1&refPeriods=20200101,20200101&dimensionLayouts=layout2,layout3,layout3,layout3&vectorDisplay=false>
+
+```{r import}
+
+# import data from source
+
+url1 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+
+url2 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+
+url3 <- "https://www150.statcan.gc.ca/t1/tbl1/en/dtl!downloadDbLoadingData.action?pid=1710000501&latestN=0&startDate=20200101&endDate=20200101&csvLocale=en&selectedMembers=%5B%5B8%2C9%2C10%5D%2C%5B%5D%2C%5B1%5D%5D&checkedLevels=1D1"
+
+covid_case_data <- read_csv(url1)
+covid_death_data <- read_csv(url2)
+province_pop <- read_csv(url3)
+
+view(covid_case_data)
+view(covid_death_data)
+view(province_pop)
+```
+We'll do a quick check to see what kind of information we have available. We can already see we have a time series by day and a province data source, but am looking to see if have a population column for future use and analysis. 
+
+Turns out, we do not. As such we're going to jump back up to "r import" and import a data set with provincial population data to use and then check headers again. 
+
+```{r view headers}
+
+head(covid_death_data)
+head(covid_case_data)
+head(province_pop)
+```
+###Cleaning
+
+We now have all the info we need to proceed, but will first have to clean up a bit. We will be pivoting to run the dates down as rows, changing date to a date format, changing to a factor and then checking everything is in the formats we desire. 
+
+
+```{r clean data}
+# select only columns required
+# filter out unknown age groups
+
+covid_death_clean <- covid_death_data %>%
+  pivot_longer(cols = -c('Province/State', 'Country/Region', Lat, Long),
+                 names_to = "date", 
+                 values_to = "deaths") %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long)) %>%
+  rename(Province = 'Province/State',
+         Country = 'Country/Region')
+
+
+covid_case_clean <- covid_case_data %>%
+  pivot_longer(cols = -c('Province/State', 'Country/Region', Lat, Long),
+                 names_to = "date", 
+                 values_to = "cases") %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long)) %>%
+  rename(Province = 'Province/State',
+         Country = 'Country/Region')
+
+
+covid_death_clean$Country <- factor(covid_death_clean$Country)
+covid_death_clean$Province <- factor(covid_death_clean$Province)
+
+covid_case_clean$Country <- factor(covid_case_clean$Country)
+covid_case_clean$Province <- factor(covid_case_clean$Province)
+
+str(covid_death_clean)
+```
+###Plotting and Analysis
+
+Next we'll plot our case and death data to see if we can gain any initial information. 
+
+```{r plot case data}
+
+ggplot(subset(covid_case_clean, Province %in% c("Manitoba", "Saskatchewan", "Alberta")), aes(x = date, y = cases)) + labs(title = "Covid Cases for 3 Praire Provinces") +
+  geom_line(aes(y = cases, color = Province))
+
+```
+```{r plot death data}
+
+ggplot(subset(covid_death_clean, Province %in% c("Manitoba", "Saskatchewan", "Alberta")), aes(x = date, y = deaths)) + labs(title = "Covid Cases for 3 Praire Provinces") +
+  geom_line(aes(y = deaths, color = Province))
+
+```
+
+Initially this seems pretty noteworthy, but we have to considered and standardized for population to draw any conclusions so we'll set that up now in advance. While we could clean the data and use the entire table, considering we're only using 3 static data points for population we'll simply assign those the direct value and check that they're correct.
+
+```{r assign population}
+# select only columns required
+# filter out unknown age groups
+
+
+manitoba <- province_pop %>% 
+ filter(province_pop$GEO == 'Manitoba')
+
+man_pop <- manitoba$VALUE
+
+saskatchewan <- province_pop %>% 
+ filter(province_pop$GEO == 'Saskatchewan')
+
+sask_pop <- saskatchewan$VALUE
+
+alberta <- province_pop %>% 
+ filter(province_pop$GEO == 'Alberta')
+
+alb_pop <- alberta$VALUE
+
+man_pop
+sask_pop
+alb_pop
+
+```
+
+The last thing I want to compare is the standardized rate to population of each of the 3 provinces to one and other. To do so will simply take the max count of cases and compare it to each provinces population.  
+
+
+```{r case rate graph}
+
+can_covid_case = covid_case_clean %>%
+    filter(covid_case_clean$Province %in% c("Manitoba", "Saskatchewan", "Alberta"))
+
+can_covid_death = covid_death_clean %>%
+    filter(covid_death_clean$Province %in% c("Manitoba", "Saskatchewan", "Alberta"))
+
+man_per_person <- max(can_covid_case$cases[can_covid_case$Province =="Manitoba"]) / man_pop
+
+sask_per_person <- max(can_covid_case$cases[can_covid_case$Province =="Saskatchewan"]) / sask_pop
+
+alb_per_person <- max(can_covid_case$cases[can_covid_case$Province =="Alberta"]) / alb_pop
+
+man_per_person
+sask_per_person
+alb_per_person
+
+chart_time <- data.frame(rate = c("1", "2", "3"), location = c("Alberta", "Saskatchewan", "Manitoba"), value = c(alb_per_person, sask_per_person, man_per_person))
+
+ggplot(data = chart_time, aes(x = location, y = value)) + geom_bar(stat = "identity", aes(fill = value))
+```
+```{r death rate graph}
+
+d_man_per_person <- max(can_covid_death$deaths[can_covid_death$Province =="Manitoba"]) / man_pop
+
+d_sask_per_person <- max(can_covid_death$deaths[can_covid_death$Province =="Saskatchewan"]) / sask_pop
+
+d_alb_per_person <- max(can_covid_death$deaths[can_covid_death$Province =="Alberta"]) / alb_pop
+
+chart_time <- data.frame(rate = c("0.05", "0.1", "0.15"), location = c("Alberta", "Saskatchewan", "Manitoba"), value = c(d_alb_per_person, d_sask_per_person, d_man_per_person))
+
+ggplot(data = chart_time, aes(x = location, y = value)) + geom_bar(stat = "identity", aes(fill = value))
+```
+Interestingly, while Manitoba has the lowest case count per person, it has the highest death rate and Alberta the opposite. This leads me to believe that on the surface Alberta's handling of the pandemic was indeed more effective at keeping people safe and alive. 
+
+
+###Modelling
+
+Lastly, we'll do a couple simple linear models to see how strong of, if any, the relationship is between cases in a province of our sample. First off, cases by province. 
+
+
+```{r case province model}
+
+mod_case = lm(cases~Province, data = can_covid_case)
+
+summary(mod_case)
+
+```
+Next we will do the same regarding deaths. 
+
+```{r death province model}
+
+mod_death = lm(deaths~Province, data = can_covid_death)
+
+summary(mod_death)
+
+```
+Looking at R-squared values, it is somewhat interesting to note that while there is a minor correlation likely between cases and deaths in the three provinces it is not very strong with r-squared values of 0.30 and 0.27 respectively. Those border on what is generally classified as weak/moderate correlation.
+
+
+# Bias
+
+First and foremost, I am a part of the data, which means I have prior knowledge, handling and conclusions drawn prior to even starting. While I feel I didn't proceed any differently that cannot be discounted. 
+
+Additionally, conclusions drawn do not factor in any other outside biases on data that exist. For example, Manitoba might have a vastly older or young population. Alberta may have significantly inferior health care (these are examples, not accusations), and as such these biases would likely impact the rate at which deaths occur from cases. 
